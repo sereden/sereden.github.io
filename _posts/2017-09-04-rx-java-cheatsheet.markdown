@@ -399,3 +399,60 @@ takeLast(n) і skipLast(n)
 Перший бере `n`тий обєкт, тому всі попередні обєкти мають зберігатися в памяті.
 
 Другий в свою чергу пропускає `n` обєктів 
+
+concat(), .concatWith()
+=====
+Дозволяє обєднувати два потоки: **коли перший закінчився, `concat()` підписується до другого**
+
+**Важливо:** `concat()` підпишеться на другий потік лише тоді, коли перший закінчився.
+![concat](http://reactivex.io/documentation/operators/images/concat.png)
+
+{% highlight java %}
+Observable<Car> fromCache = loadFromCache();
+Observable<Car> fromDb = loadFromDb();
+Observable<Car> found = Observable
+ .concat(fromCache, fromDb)
+ .first();
+ {% endhighlight %}
+ У даному прикладі, якщо fromCache() верне хоча б 1 елемент **підписка на `fromDb` не відбудеться**
+
+switchOnNext()
+=====
+має сенс лише коли ми працюємо з вхідним обєктом типу `Observable<T>`. Коли наступний потік `Observable<T>` зявляється, `switchOnNext()` відписується від попереднього і підписується до нового.  
+{% highlight java %}
+//A
+map(innerObs ->
+ innerObs.delay(rnd.nextInt(5), SECONDS))
+//B
+flatMap(innerObs -> just(innerObs)
+ .delay(rnd.nextInt(5), SECONDS))
+ {% endhighlight %}
+ В прикладі `A` ми лише затримуємо породження наступуного обєкта `innerObs`, натомість в `B` ми затримуємо породження нового `Observable<T>`. Логічно, що при реалізації першого варіанту `switchOnNext()` нічого не зробить, оскільки має змінитися саме `Observable` який емітить дані.
+![switchOnNext](http://reactivex.io/documentation/operators/images/switchDo.png)
+
+compose()
+====
+Бере функцію в якості аргумента, яка повина трасформувати вхідний потік через серію інших операторів. Грубо кажучи **реалізація кастомного оператора, на основі використання існуючих операторів**
+{% highlight java %}
+private <T> Observable.Transformer<T, T> odd() {
+ Observable<Boolean> trueFalse = just(true, false).repeat();
+ return upstream -> upstream
+ .zipWith(trueFalse, Pair::of)
+ .filter(Pair::getRight)
+ .map(Pair::getLeft);
+}
+//...
+//[A, B, C, D, E...]
+Observable<Character> alphabet =
+ Observable
+ .range(0, 'Z' - 'A' + 1)
+ .map(c -> (char) ('A' + c));
+//[A, C, E, G, I...]
+alphabet
+ .compose(odd())
+ .forEach(System.out::println);
+ {% endhighlight %}
+
+lift()
+====
+Майже як і `compose()`, але дозволяє будувати свої правила трансформації потоку, але управління повністю належить нашому кастомному оператору.
