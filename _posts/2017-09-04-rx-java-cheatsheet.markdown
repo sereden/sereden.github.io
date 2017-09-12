@@ -456,3 +456,228 @@ alphabet
 lift()
 ====
 Майже як і `compose()`, але дозволяє будувати свої правила трансформації потоку, але управління повністю належить нашому кастомному оператору.
+
+BlockingObservable
+====
+Потрібний тоді, коли у нас немає можливості переписати весь існуючий код на rx. Ключовий опертор - `toBlocking()` який визивається в блокуючому потоці. Грубо кажучи визиває весь ланцюг rx методів в головному потоці. 
+{% highlight java %}
+List<Person> people = personDao
+	 .listPeople()
+	 .toList()
+	 .toBlocking()
+	 .single();
+{% endhighlight %}
+
+Старайтеся **ніколи** не використовувати
+
+onErrorResumeNext()
+====
+оператор, що відловлює помилки, що виникають у попередніх потоках і **надає запасний `Observable`**
+
+{% highlight java %}
+void bestBookFor(Person person) {
+	 recommend(person)
+		 .onErrorResumeNext(bestSeller())
+		 .map(Book::getTitle)
+		 .subscribe(this::display);
+}
+{% endhighlight %}
+
+![onErrorResumeNext](http://reactivex.io/documentation/operators/images/onErrorResumeNext.js.png)
+
+Schedulers
+====
+### Schedulers.newThread()
+найгріший варіант використання, оскільки **створені нові потоки ніяк не контролюється**. Єдиний приклад використання у систем з велико-зернистою моделлю: займає багато часу на виконання кожного потоку, але їх мало, тому ймовірніть перевикористання мала.
+### Schedulers.io()
+Схожий до `newThread()`, але **запущені потоки можуть перевикористовуватися**, що позитивно впоиває на швидкодію. Потік має низький пріоритет, тому він підходить для виконання не CPU-повязаних операцій таких як **зчитування з інтернету, диску, засипання**
+
+### Schedulers.computation()
+Використовується для **CPU-повязаних операцій**, коли потрібно виконати великі обрахунки не блокуючого коду (не зчитувати з диску, інтернету і тд) 
+Є можливість зменшити максимальну к-сть потоків, використовуючи rx.scheduler.max-computation-threads. К-сть потоків не може бути більша за кількість ядер
+
+### Schedulers.from(Executor executor)
+можливість кастомної реалізації пулу потоків
+
+### Schedulers.immediate()
+**Виконує таск в клієнтському потоці**. Використовується тоді, коли немає необхідності переключати потоки, але дизайн вимагає певного `Scheduler'a`. Можна використовувати в тестах :-)
+Також ставить всі породжені обєкти в чергу на виконання.
+
+### Schedulers.trampoline()
+Такий же як `immediate()`, але різниця в тому, що **`trampoline()` бере таск на виконання лише після того, як попередній був закінчений.**
+`Trampoline` - це паттерн в функціональному програмуванні, що довзоляє реалізовувати **рекурсію без безкінечного росту стеку викликів**
+
+Різниця між `immediate()` i `trampoline()`
+{% highlight java %}
+Scheduler scheduler = Schedulers.immediate();
+Scheduler.Worker worker = scheduler.createWorker();
+
+log("Main start");
+worker.schedule(() -> {
+	 log(" Outer start");
+	 sleepOneSecond();
+	 worker.schedule(() -> {
+		 log(" Middle start");
+		 sleepOneSecond();
+		 worker.schedule(() -> {
+			 log(" Inner start");
+			 sleepOneSecond();
+			 log(" Inner end");
+		 });
+		 log(" Middle end");
+	 });
+	 log(" Outer end");
+ });
+log("Main end");
+{% endhighlight %}
+`Worker` для `immediate()` виведе так:
+ ```
+ 1029 | main | Main start
+ 1091 | main | Outer start
+ 2093 | main | Middle start
+ 3095 | main | Inner start
+ 4096 | main | Inner end
+ 4099 | main | Middle end
+ 4099 | main | Outer end
+ 4099 | main | Main end
+ ```
+ `Worker` для `trampoline()` виведе так, оскільки `Middle` не почнеться, поки попередній `Outer` не закінчиться і `Inner` не буде виконувати допоки `Middle` не закінчиться
+ ```
+ 1041 | main | Main start
+ 1095 | main | Outer start
+ 2099 | main | Outer end
+ 2099 | main | Middle start
+ 3101 | main | Middle end
+ 3101 | main | Inner start
+ 4102 | main | Inner end
+ 4102 | main | Main end
+ ```
+### Schedulers.test()
+Використовується в тестах і ніколи не повинен бути в продактшині, дозволяє симулювати плин часу
+
+subscribeOn()
+====
+- Декілька підряд визваних `subscribeOn()` не змінюють потік після першого, наприклад 
+{% highlight java %}
+log("Starting");
+Observable<String> obs = simple();
+log("Created");
+obs
+	 .subscribeOn(schedulerA)
+	 //many other operators
+	 .subscribeOn(schedulerB)
+	 .subscribe(
+		 x -> log("Got " + x),
+		 Throwable::printStackTrace,
+		 () -> log("Completed")
+	 );
+log("Exiting");
+{% endhighlight %}
+```
+17 | main | Starting
+73 | main | Created
+83 | main | Exiting
+84 | Sched-A-0 | Subscribed
+84 | Sched-A-0 | Got A
+84 | Sched-A-0 | Got B
+84 | Sched-A-0 | Completed
+```
+Але `schedulerB` не ігнорується повністю. В ньому створюється `schedulerA` в якому і виконується вся робота. Тому **декілька `subscribeOn` - це лишній overhead** (толку 0, але ресурси затратилися).
+- `subscribeOn()` - це не true <s>detective</s> concurrency. Воно **не гарантує паралельного виконання**, якщо було не використане правильно. 
+  Наприклад, це буде виконане **в іншом потоці**, але **послідовно**:
+ {% highlight java %}
+ Observable
+	  .just("bread", "butter", "milk", "tomato", "cheese")
+	  .subscribeOn(schedulerA)
+	  // flatMap не приносить паралелізм сам по собі
+	  .flatMap(prod -> rxGroceries.purchase(prod, 1))
+	  .reduce(BigDecimal::add)
+	  .single();
+ {% endhighlight %}
+ 
+ ```
+ 144  | Sched-A-0 | Purchasing 1 bread
+ 1144 | Sched-A-0 | Done 1 bread
+ 1146 | Sched-A-0 | Purchasing 1 butter
+ 2146 | Sched-A-0 | Done 1 butter
+ 2146 | Sched-A-0 | Purchasing 1 milk
+ 3147 | Sched-A-0 | Done 1 milk
+ 3147 | Sched-A-0 | Purchasing 1 tomato
+ 4147 | Sched-A-0 | Done 1 tomato
+ ```
+ 
+ А таке використання дозволить досягнути **паралелізму** як із `ForkJoinPool`
+ {% highlight java %}
+Observable<BigDecimal> totalPrice = Observable
+	  .just("bread", "butter", "milk", "tomato", "cheese")
+	  .flatMap(prod ->
+		  rxGroceries
+			  .purchase(prod, 1)
+			  .subscribeOn(schedulerA))
+	  .reduce(BigDecimal::add)
+	  .single();
+{% endhighlight %}
+
+```
+113  | Sched-A-1 | Purchasing 1 butter
+114  | Sched-A-0 | Purchasing 1 bread
+125  | Sched-A-2 | Purchasing 1 milk
+125  | Sched-A-3 | Purchasing 1 tomato
+126  | Sched-A-4 | Purchasing 1 cheese
+1126 | Sched-A-2 | Done 1 milk
+1126 | Sched-A-0 | Done 1 bread
+1126 | Sched-A-1 | Done 1 butter
+1128 | Sched-A-3 | Done 1 tomato
+1128 | Sched-A-4 | Done 1 cheese
+```
+
+observeOn() vs subscribeOn()
+====
+`subscribeOn()` і `observeOn()` працюють дуже добре разом, коли ви **хочете фізично
+відділити виробника (`Observable.create()`) та споживача (`Subscriber`)**.
+
+Що це означає? `subscribeOn()` **змінює потік всіх верх стоячих операторів** до появи або `subscribeOn()` або `observeOn()`. `observeOn()` в свою чергу **змінює потік всіх нижче стоячих операторів** до появи наступного `observeOn()`.
+{% highlight java %}
+log("Starting");
+final Observable<String> obs = simple();
+log("Created");
+obs
+	 .doOnNext(x -> log("Found 1: " + x))
+	 .observeOn(schedulerB)
+	 .doOnNext(x -> log("Found 2: " + x))
+	 .observeOn(schedulerC)
+	 .doOnNext(x -> log("Found 3: " + x))
+	 .subscribeOn(schedulerA)
+	 .subscribe(
+		 x -> log("Got 1: " + x),
+		 Throwable::printStackTrace,
+		 () -> log("Completed")
+	 );
+log("Exiting");
+{% endhighlight %}
+```
+21  | main | Starting
+98  | main | Created
+108 | main | Exiting
+129 | Sched-A-0 | Subscribed
+129 | Sched-A-0 | Found 1: A
+129 | Sched-A-0 | Found 1: B
+130 | Sched-B-0 | Found 2: A
+130 | Sched-B-0 | Found 2: B
+130 | Sched-C-0 | Found 3: A
+130 | Sched-C-0 | Got: A
+130 | Sched-C-0 | Found 3: B
+130 | Sched-C-0 | Got: B
+130 | Sched-C-0 | Completed
+```
+так як `simple()` не має (хоча по-доброму мав би) `subscribeOn()` оператора, то `schedulerA` застосовується до всіх операторів зверху аж до появи `.observeOn(schedulerB)`
+
+Інші способи використання Schedulers
+====
+є деякі оператори (interval(), range(), timer(), repeat(), skip(), take(), timeout(), delay()) які по **своїй природі блокують потік**. Логічно, якщо у нас є, наприклад, `delay()`, який породжує обєкти з заданою затримкою в `computation()` потоці, то даний потік буде блокований на вказаний період. Для уникнення цього потрібно використовувати інший потік:
+{% highlight java %}
+Observable
+	 .just('A', 'B')
+	 .delay(1, SECONDS, schedulerA)
+	 .subscribe(this::log);
+{% endhighlight %}
