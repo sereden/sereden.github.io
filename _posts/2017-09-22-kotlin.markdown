@@ -1,0 +1,141 @@
+---
+layout: post
+title:  "Kotlin"
+date:   2017-09-22 17:40:49 +0300
+categories: kotlin
+---
+Anko
+======
+
+{% highlight java %}
+val url = "http://...."
+
+doAsync(){
+	Request(url).run()
+	uiThread { longToast("Request performed") }
+}
+{% endhighlight %}
+
+A nice thing about `uiThread` is that it has a different implementations depending on the caller object. If it’s used by an Activity, the uiThread code won’t be executed if `activity.isFinishing()` returns true, and it **won’t crash if the activity is no longer valid**.
+
+You also can use your own executor:
+
+{% highlight java %}
+vall executor = Executors.newScheduledThreadPool(4)
+async(executor){
+// task
+}
+{% endhighlight %}
+
+`doAsync` returns a java `Future`, in case you want to work with futures. And if you need it to return a future with a result, you can use doAsyncResult
+
+copy()
+====
+{% highlight java %}
+val f1 = Forecast(Date(), 27.5f, "Shiny day")
+val f2 = f1.copy(temperature = 30f)
+{% endhighlight %}
+
+
+In the example, you could **still access the Date object and change its value**. The easy (and unsafe) option is to remember the rules of **not modifying the state of any object, but copying it when necessary**.
+
+Mapping an object
+====
+{% highlight java %}
+val f1 = Forecast(Date(), 27.5f, "Shiny day")
+val (date, temperature, details) = f1
+val date = f1.component1()
+val temperature = f1.component2()
+val details = f1.component3()
+{% endhighlight %}
+
+Companion object
+====
+In Kotlin, we can’t create static properties or functions, but we need to rely on objects.
+If we need some **static properties, constants or functions** in a class, we can use a `companion object`. This object **will be shared among all instances of the class**, the same as a static field or method would do in Java
+
+with()
+====
+It basically receives an object and an extension function as parameters, and **makes the object execute the function**. This means that all the code we define inside the brackets acts as an extension function for the object provided in the first parameter, and we can use all its public functions and properties, as well as this.
+ 
+{% highlight java %}
+/*
+weekForecast.dailyForecast[position]:WeatherModel
+
+WeahterNodel.kt:
+	val date
+	val description
+	val high
+	val low
+*/
+
+with(weekForecast.dailyForecast[position]) {
+        holder.textView.text = "$date - $description - $high/$low"
+}
+{% endhighlight %}
+
+Operators
+====
+List is here [Operator Overloading](https://kotlinlang.org/docs/reference/operator-overloading.html)
+
+{% highlight kotlin %}
+data class ForecastList(val city: String, val country: String, private val dailyForecast: List<Forecast>) {
+	val size: Int
+		get() = dailyForecast.size
+	
+	operator fun get(position: Int): Forecast = dailyForecast[position]
+}
+{% endhighlight %}
+
+**Invoke example**:
+
+{% highlight java %}
+interface OnItemClickListener {
+	operator fun invoke(forecast: Forecast)
+}
+{% endhighlight %}
+And you can use both of them
+
+{% highlight kotlin %}
+itemClick.invoke(forecast)
+itemClick(forecast)
+{% endhighlight %}
+
+Anonymous class
+====
+
+{% highlight java %}
+forecastList.adapter = ForecastListAdapter(result, object :
+	ForecastListAdapter.OnItemClickListener{
+		override fun invoke(forecast: Forecast) { 
+			toast(forecast.date)
+		} 
+	})
+{% endhighlight %}
+
+However, `setOnClickListener` in Kotlin looks like
+```
+fun setOnClickListener(listener: (View) -> Unit)
+```
+So we could use this construction:
+```
+view.setOnClickListener({ view -> toast("Click")})
+```
+Or even get rid of the left part
+
+```
+view.setOnClickListener({ toast("Click") })
+```
+
+If the **last argument of a function is also a function**, we can move it out of the parentheses:
+```
+view.setOnClickListener() { toast("Click") }
+```
+
+And, finally, if the **function is the only parameter**, we can get rid of the parentheses
+```
+view.setOnClickListener { toast("Click") }
+```
+
+{% highlight java %}
+{% endhighlight %}

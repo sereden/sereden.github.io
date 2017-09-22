@@ -115,6 +115,11 @@ publish().refCount() = share()
 ===========
 В теорії має бути як і `cache()`, але не впевнений :-). Кажуть, що він не трогає оригінальний `Observable` і рахує скільки subscriber'ів є. Якщо змінюється з 0 на 1, то відбується підписка і дані починають надходити. А якщо підключиться, ще один subscriber, то нової ініціалізації не буде, новий буде отримувати ті ж дані, що і перший subscriber. Якщо останній subscriber відпишеться - Observer перестане породжувати дані. Виглядає ніби subscriber шейрять (share) один Observer, тому і зявився аліас - `share()` (який виглядає як `publish().refCount()`
 
+publish() and connect()
+====
+`publish()` Дозволяє не запускати потік, якщо хтось підписався, дані почнуться емітитися лише, коли визваний `connect()`
+![publish-connect](http://reactivex.io/documentation/operators/images/publishConnect.c.png)
+
 map()
 =======
 Трансформує один тип даних в інший. Трансормація **блокується**, тому виконання має бути швидким
@@ -680,4 +685,186 @@ Observable
 	 .just('A', 'B')
 	 .delay(1, SECONDS, schedulerA)
 	 .subscribe(this::log);
+{% endhighlight %}
+
+BackPressure
+====
+
+sample() (aka throttleLast()), throttleFirst())
+=====
+Забирає останній елемент, якщо такий зявився через заданий проміжок. Якщо протягом затримки було декілька елементів - оброблюється лише останній
+
+{% highlight java %}
+ Observable<String> names = Observable
+        .just("Mary", "Patricia", "Linda",
+            "Barbara",
+            "Elizabeth", "Jennifer", "Maria", "Susan",
+            "Margaret", "Dorothy");
+    Observable<Long> absoluteDelayMillis = Observable
+        .just(0.1, 0.6, 0.9,
+            1.1,
+            3.3, 3.4, 3.5, 3.6,
+            4.4, 4.8)
+.map(d -> (long)(d * 1_000)); //...
+    delayedNames
+        .throttleFirst(1, SECONDS)
+        .subscribe(System.out::println);
+{% endhighlight %}
+
+```
+Mary
+Barbara
+Elizabeth
+Margaret
+```
+
+buffer()
+====
+обєднує декілька івентів в один `List` заданого розміру.
+На відміну від `toList()` - породжує **декілька листів, замість одного**
+
+{% highlight java %}
+Observable
+	.range(1, 7) //1, 2, 3 . . . 7 
+	.buffer(3) 
+	.subscribe((List<Integer> list) -> {
+                System.out.println(list);
+            }
+);
+
+{% endhighlight %}
+
+```
+[1, 2, 3]
+[4, 5, 6]
+[7]
+```
+
+**buffer(count, drop)** дозволяє сконфігурувати скільки **старих значень викинути** перед тим як передати далі:
+{% highlight java %}
+Observable
+            .range(1, 7)
+            .buffer(3, 1)
+            .subscribe(System.out::println);
+{% endhighlight %}
+
+```
+[1, 2, 3]
+[2, 3, 4]
+[3, 4, 5]
+[4, 5, 6]
+[5, 6, 7]
+[6, 7]
+[7]
+```
+
+window()
+====
+Майже те саме, як і `buffer()` тільки краще, тому його радять використовувати:
+- Отримуючи int, групує івенти в списки фіксованого розміру
+- Отримуючи `time unit`, групує події протягом періоду фіксованого часу
+- Отримуючи `Observable`, позначає початок і кінець кожної пачки
+
+`window()` на відміну від `buffer()` **групує обєкти не в список, а в `Observable`**
+
+`buffer()` і `window()` об'єднують кілька подій разом. `sample()` вибирає одну досить довільну подію один раз за деякий час. Ці оператори не враховують, скільки часу минуло між подіями. Тому деякі **обєкти можуть бути відхилені**.
+
+debounce() (alias: throttleWithTimeout())
+====
+Відхиляє івенти що слідують один за одним: тобто пропускає лише ті, що витримали вказаний період.
+Наприклад, такий код не видасть ніякого результату, оскільки таймер `debounce()` не витримується:
+
+{% highlight java %}
+Observable
+        .interval(99, MILLISECONDS)
+        .debounce(100, MILLISECONDS)
+{% endhighlight %}
+
+onBackpressureBuffer()
+====
+Довзоляє **буферизувати 128 (за замовчуванням)** елементів, що емітяться. Але таке рішення може привести до `java.lang.OutOfMemoryError`.
+
+Рекомендовано використовувати дану конструкцію, оскільки вона більш захищена `.onBackpressureBuffer(1000, () -> log.warn("Buffer full"))`. Але все одно воно не спасе, оскільки `MissingBackpressureException` буде викинуте після попередження.
+
+onBackpressureDrop()
+====
+Просто **відхиляє всі івенти, які появилися без виклику `request()`** (тобто не були "спожиті" слухачем)
+```
+.onBackpressureDrop(dish -> log.warn("Throw away {}", dish))
+````
+ 
+onBackpressureLatest()
+====
+Такий самий як і `onBackpressureDrop()`, але **зберігає останній елемент, що був відхилений** тим самим дозволяє спасти найостанніший елемент у випадку пізнього `request()`
+
+SyncOnSubscribe.createStateful and SyncOnSubscribe.createStateless
+====
+Довзоляють будувати **`backpressure` безпечні `Observable`**. Різниця лише параметрі, що позначає **стан попереднього елемента**
+{% highlight java %}
+Observable.OnSubscribe<Double> onSubscribe =
+        SyncOnSubscribe.createStateless(
+            observer -> observer.onNext(Math.random())
+        );
+    Observable<Double> rand = Observable.create(onSubscribe);
+    
+    //
+    
+    Observable.OnSubscribe<Long> onSubscribe =
+                SyncOnSubscribe.createStateful(
+                        () -> 0L,
+                        (cur, observer) -> {
+                            observer.onNext(cur);
+    return cur + 1; }
+                );
+        Observable<Long> naturals = Observable.create(onSubscribe);
+{% endhighlight %}
+
+SyncOnSubscribe.createSingleState
+====
+
+{% highlight java %}
+Observable.OnSubscribe<Object[]> onSubscribe = SyncOnSubscribe.createSingleState(
+	() -> resultSet,
+	(rs, observer) -> { 
+		try {
+			rs.next();
+			observer.onNext(toArray(rs)); } 
+		catch (SQLException e) {
+			observer.onError(e);
+		}
+	}, 
+	rs->{
+		try {
+			//Also close Statement, Connection, etc. 
+			rs.close();
+		} catch (SQLException e) { 
+			log.warn("Unable to close", e);
+		} 
+	});
+{% endhighlight %}
+
+
+**Уникаючи затратних операцій в `subscribe()` ми зменшуємо потребу в `backpressure()`, але все одно краще подумати наперед.**
+
+Погано:
+{% highlight java %}
+source.subscribe(this::store);
+{% endhighlight %}
+Так краще
+{% highlight java %}
+source
+.flatMap(this::store)
+.subscribe(uuid -> log.debug("Stored: {}", uuid));
+{% endhighlight %}
+Або
+{% highlight java %}
+source
+	.flatMap(this::store) 
+	.buffer(100) 
+	.subscribe(hundredUuids -> log.debug("Stored: {}", hundredUuids))
+{% endhighlight %}
+
+
+
+{% highlight java %}
 {% endhighlight %}
