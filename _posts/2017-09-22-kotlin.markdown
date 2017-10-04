@@ -220,6 +220,10 @@ val conf = Configuration(mapOf( "width" to 1080,
 ))
 {% endhighlight %}
 
+## use
+Executes the given block function on this resource and then closes it down correctly whether an exception is thrown or not
+
+
 Aggregate operations
 ====
 ## any
@@ -476,7 +480,234 @@ assertEquals(listOf(3, 7, 2, 5), unsortedList.sortBy { it % 3 })
 ## sortDescendingBy
 
 
+# Null safety
+
+{% highlight java %}
+val a: Int? = null
+if(a!=null){
+	a.toString()
+}
+{% endhighlight %}
+
+This only works if a variable can’t be _concurrently modified_, because otherwise the value could have been changed from another thread and the previous check would be false at that moment. It is supported on **`val` properties or local (`val` or `var`) variables**
+
+
+
+# When
+
+{% highlight java %}
+when (x) {
+	1-> println ("1")
+	2-> println ("2")
+	else ->{
+		print ("else")
+	}
+}
+{% endhighlight %}
+
+Another
+{% highlight java %}
+val result = when (x) { 
+	0, 1 -> "binary" 
+	else -> "error"
+}
+{% endhighlight %}
+
+
+## Austocasting:
+
+{% highlight java %}
+when(view) {
+	is TextView -> view.text = "I'm a TextView"
+	is EditText -> toast("EditText value: ${view.getText()}")
+	is ViewGroup -> toast("Number of children: ${view.getChildCount()} ") else -> view.visibility = View.GONE
+}
+{% endhighlight %}
+
+## Range
+
+
+
+{% highlight java %}
+val cost = when(x) {
+	in 1..10 -> "cheap"
+	in 10..100 -> "regular"
+	in 100..1000 -> "expensive"
+	in specialValues -> "special value!" else -> "not rated"
+}
+{% endhighlight %}
+
+## Crazy
+{% highlight java %}
+val res=when{
+	x in 1..10 -> "cheap"
+	s.contains("hello") -> "it's a welcome!"
+	v is ViewGroup -> "child count: ${v.getChildCount()}" else -> ""
+}
+{% endhighlight %}
+
+
+# Loops
+
+## indexes:
+{% highlight java %}
+for (index in 0..viewGroup.getChildCount() - 1) { 
+	val view = viewGroup.getChildAt(index) view.visibility = View.VISIBLE
+}
+{% endhighlight %}
+
+## Array or list
+
+```
+for (i in array.indices) 
+	print(array[i])
+```
+
+# while/doWhile
+
+{% highlight java %}
+while(x>0){ 
+	x--
+}
+
+do{
+	val y = retrieveData()
+} while (y != null) // y is visible here!
+{% endhighlight %}
+
+# Ranges
+This can be converted
+```
+if(i>=0&&i<=10) 
+	println(i)
+```
+to:
+
+```
+if (i in 0..10) 
+	println(i)
+```
+
+Ranges are **incremental** by default
+
+This won't work
+```
+for (i in 10..0) 
+	println(i)
+```
+
+Use `downTo`
+
+```
+for (i in 10 downTo 0)
+	println(i)
+```
+
+**step**
+
+```
+for (i in 1..4 step 2) 
+	println(i)
+	
+for (i in 4 downTo 1 step 2) 
+	println(i)
+```
+
+
+** Crazy ways to use ranges**
+```
+val views = (0 until viewGroup.childCount).map { viewGroup.getChildAt(it) }
+```
+
+
+# Interfaces
+Kotlin interfaces, on the other hand, are able to implement functions. The only difference from a class is that they **are stateless, so the properties that need a backing field will need to be overridden by the class**. The class will be in charge of saving the state of interface properties.
+{% highlight java %}
+interface FlyingAnimal { 
+	val wings: Wings
+	fun fly() = wings.move()
+}
+
+class Bird : FlyingAnimal {
+	override val wings: Wings = Wings()
+}
+
+class Bat: FlyingAnimal{
+	override val wings: Wings = Wings()
+}
+
+{% endhighlight %}
+
+# Delegates
+
+{% highlight java %}
+interface CanFly {
+	fun fly()
+} 
+
+class Bird(f: CanFly) : CanFly by f
+{% endhighlight %}
+
+The way an animal with wings flies is defined in another class:
+{% highlight java %}
+class AnimalWithWings : CanFly {
+	val wings: Wings = Wings() 
+	override fun fly() = wings.move()
+{% endhighlight %}
+
+So now we can create a bird that flies using wings:
+
+{% highlight java %}
+val birdWithWings = Bird(AnimalWithWings())
+birdWithWings.fly()
+{% endhighlight %}
+
+ If we assume that bats always use wings, we could instantiate the object directly where we specify the delegation:
+ 
+{% highlight java %}
+class Bat : CanFly by AnimalWithWings()
+ ...
+val bat = Bat()
+bat.fly()
+ 
+ {% endhighlight %}
+
+# Generics
+
+## minimization
+{% highlight java %}
+
+class TypedClass<T>(parameter: T) { 
+	val value: T = parameter
+}
+
+//you can do so
+val t0 = TypedClass<String>("Hello World!")
+
+
+// but it's better
+val t1 = TypedClass("Hello World!")
+val t2 = TypedClass(25)
+
+// but here we need to specify type
+val t3 = TypedClass<String?>(null)
+{% endhighlight %}
+As the third object is receiving a null reference, the type still needs to be specified because it can’t be inferred.
+
+
+If we want to restrict previous class to non-nullable types, we just need to do:
+{% highlight java %}
+class TypedClass<T : Any>(parameter: T) {
+	val value: T = parameter
+}
+{% endhighlight %}
+
+
+
 
 
 {% highlight java %}
 {% endhighlight %}
+
+
+
