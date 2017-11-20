@@ -1,0 +1,39 @@
+---
+layout: post
+title:  "Proguard"
+date:   2017-11-20 10:40:49 +0300
+categories: proguard
+---
+Proguard
+======
+
+Original  [is here](https://jebware.com/blog/?p=418)
+
+No rule
+====
+![no rule](http://jebware.com/blog/wp-content/uploads/2017/11/none.png)
+
+To get our bearings, let’s look at the default.  If you don’t specify a keep directive of any kind, then ProGuard is going to do it’s normal thing — it’s going to both shrink (i.e. remove unused code) and obfuscate (i.e. rename things) both classes and class members.
+
+-keep
+====
+
+![keep](http://jebware.com/blog/wp-content/uploads/2017/11/keep.png)
+
+See, this is why I said you should almost never use -keep.  -keep disables all of ProGuard’s goodness.  No shrinking, no obfuscation; not for classes, not for members.  In real use cases, you can let ProGuard do at least some of it’s work.  Even if your variables are accessed by reflection, you could remove and rename unused classes, for example.  So let’s look through the more specific -keep variants.
+
+-keepclassmembers
+====
+This protects only the members of the class from shrinking and obfuscation.  That is, if a class is unused, it will be removed.  If the class is used, the class will be kept but renamed.  But inside any class that is kept around, all of its members will be there, and they will have their original names.
+
+-keepnames
+====
+![keepnames](http://jebware.com/blog/wp-content/uploads/2017/11/keepnames.png)
+
+This allows shrinking for classes and members, but not obfuscation.  That is, any unused code is going to get removed.  But the code that is kept will keep its original names.
+
+-keepclassmembernames
+====
+![keepclassmembernames](http://jebware.com/blog/wp-content/uploads/2017/11/keepclassmembernames.png)
+
+This is the most permissive keep directive; it lets ProGuard do almost all of its work.  Unused classes are removed, the remaining classes are renamed, unused members of those classes are removed, but then the remaining members keep their original names.
